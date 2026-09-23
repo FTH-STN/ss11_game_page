@@ -6,7 +6,16 @@
 <style>
   body { font-family: Arial; background: #f5f5f5; margin: 0; padding: 20px; }
   #loginBox, #chatUI { background: white; padding: 20px; border-radius: 8px; max-width: 600px; margin: auto; }
-  #chatBox { background: #fafafa; padding: 10px; border-radius: 8px; height: 400px; overflow-y: auto; }
+  #chatBox { background: #fafafa; padding: 10px; border-radius: 8px; height: 350px; overflow-y: auto; }
+
+  /* Active user list */
+  #userList {
+    background: #e8f0fe;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    font-size: 14px;
+  }
 
   /* Message bubbles */
   .msgLeft {
@@ -50,6 +59,9 @@
 <!-- CHAT UI -->
 <div id="chatUI" style="display:none;">
   <h2>11性奴调教游戏</h2>
+
+  <!-- ACTIVE USER LIST -->
+  <div id="userList">Users online: (loading...)</div>
 
   <div id="chatBox"></div>
 
@@ -128,7 +140,7 @@ function tryLogin() {
   // Add user to active list
   db.ref("activeUsers/" + username).set(true);
 
-  // Check if first user → reset Firebase messages
+  // If first user → reset Firebase messages
   db.ref("activeUsers").once("value", snapshot => {
     const users = snapshot.val();
     if (users && Object.keys(users).length === 1) {
@@ -171,6 +183,21 @@ document.getElementById("leaveBtn").onclick = () => {
   document.getElementById("passwordInput").value = "";
   document.getElementById("chatBox").innerHTML = "";
 };
+
+// ----------------------
+// ACTIVE USER LIST (REAL-TIME)
+// ----------------------
+db.ref("activeUsers").on("value", snapshot => {
+  const userListDiv = document.getElementById("userList");
+
+  if (!snapshot.exists()) {
+    userListDiv.innerText = "Users online: (none)";
+    return;
+  }
+
+  const users = Object.keys(snapshot.val());
+  userListDiv.innerText = "Users online: " + users.join(", ");
+});
 
 // ----------------------
 // Send Text Message
