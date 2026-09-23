@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>11's Game</title>
+<style>
+  body { font-family: Arial; background: #f5f5f5; margin: 0; padding: 20px; }
+  #loginBox, #chatUI { background: white; padding: 20px; border-radius: 8px; max-width: 600px; margin: auto; }
+  #chatBox { background: #fafafa; padding: 10px; border-radius: 8px; height: 400px; overflow-y: auto; }
+
+  /* Message bubbles */
+  .msgLeft {
+    text-align: left;
+    background: #e0e0e0;
+    padding: 8px;
+    border-radius: 8px;
+    max-width: 70%;
+    margin-bottom: 10px;
+  }
+  .msgRight {
+    text-align: right;
+    background: #cce5ff;
+    padding: 8px;
+    border-radius: 8px;
+    max-width: 70%;
+    margin-left: auto;
+    margin-bottom: 10px;
+  }
+
+  img { max-width: 200px; margin-top: 5px; border-radius: 6px; }
+
+  #msgInput { width: 70%; padding: 8px; }
+  #errorMsg { color: red; margin-top: 10px; }
+  #leaveBtn { background: #c00; color: white; padding: 8px 12px; border: none; border-radius: 6px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="loginBox">
+  <h2>进入游戏</h2>
+
+  <input type="text" id="usernameInput" placeholder="Your name"><br><br>
+  <input type="password" id="passwordInput" placeholder="Password"><br><br>
+
+  <button id="enterBtn">Enter</button>
+  <div id="errorMsg"></div>
+</div>
+
+<!-- CHAT UI -->
+<div id="chatUI" style="display:none;">
+  <h2>11性奴调教游戏</h2>
+
+  <div id="chatBox"></div>
+
+  <br>
+
+  <input type="text" id="msgInput" placeholder="Type a message">
+  <button id="sendBtn">发送消息</button>
+  <br><br>
+
+  <input type="file" id="imageInput" accept="image/*">
+  <button id="sendImageBtn">发送图片</button>
+
+  <br><br>
+  <button id="leaveBtn">离开游戏</button>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+<script>
+// ----------------------
+// Firebase Config
+// ----------------------
+const firebaseConfig = {
+  apiKey: "AIzaSyAI9oPOuv9QXzzkGiMdt2NBbaShYEklRGo",
+  authDomain: "ss11game.firebaseapp.com",
+  databaseURL: "https://ss11game-default-rtdb.firebaseio.com",
+  projectId: "ss11game",
+  storageBucket: "ss11game.appspot.com",
+  messagingSenderId: "454745281279",
+  appId: "1:454745281279:web:88d734303160dfab0e72ca"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// ----------------------
+// Cloudinary Config
+// ----------------------
+const cloudName = "ofsvu4f8";
+const uploadPreset = "chat_uploads";
+
+async function uploadImageToCloudinary(file) {
+  const url = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("upload_preset", uploadPreset);
+
+  const response = await fetch(url, { method: "POST", body: formData });
+  const data = await response.json();
+  return data.secure_url;
+}
+
+// ----------------------
+// Login (Username + Password)
+// ----------------------
+let username = "";
+const PASSWORD = "HEchoNG11";
+
+function tryLogin() {
+  const name = document.getElementById("usernameInput").value.trim();
+  const pw = document.getElementById("passwordInput").value.trim();
+
+  if (!name) {
+    document.getElementById("errorMsg").innerText = "Please enter a name.";
+    return;
+  }
+
+  if (pw !== PASSWORD) {
+    document.getElementById("errorMsg").innerText = "Incorrect password.";
+    return;
+  }
+
+  username = name;
+
+  // Add user to active list
+  db.ref("activeUsers/" + username).set(true);
+
+  // Check if first user → reset Firebase messages
+  db.ref("activeUsers").once("value", snapshot => {
+    const users = snapshot.val();
+    if (users && Object.keys(users).length === 1) {
+      db.ref("messages").remove();
+    }
+  });
+
+  // Clear local chat screen
+  document.getElementById("chatBox").innerHTML = "";
+
+  document.getElementById("loginBox").style.display = "none";
+  document.getElementById("chatUI").style.display = "block";
+}
+
+document.getElementById("enterBtn").onclick = tryLogin;
+
+// ENTER KEY for password
+document.getElementById("passwordInput").addEventListener("keydown", function(e) {
+  if (e.key === "Enter") {
+    tryLogin();
+  }
+});
+
+// ----------------------
+// Leave Chat Room
+// ----------------------
+document.getElementById("leaveBtn").onclick = () => {
+  db.ref("activeUsers/" + username).remove();
+
+  db.ref("activeUsers").once("value", snapshot => {
+    if (!snapshot.exists()) {
+      db.ref("messages").remove();
+    }
+  });
+
+  document.getElementById("chatUI").style.display = "none";
+  document.getElementById("loginBox").style.display = "block";
+
+  document.getElementById("usernameInput").value = "";
+  document.getElementById("passwordInput").value = "";
+  document.getElementById("chatBox").innerHTML = "";
+};
+
+// ----------------------
+// Send Text Message
+// ----------------------
+function sendTextMessage() {
+  const text = document.getElementById("msgInput").value.trim();
+  if (!text) return;
+
+  db.ref("messages").push({
+    user: username,
+    text: text,
+    time: Date.now()
+  });
+
+  document.getElementById("msgInput").value = "";
+}
+
+document.getElementById("sendBtn").onclick = sendTextMessage;
+
+document.getElementById("msgInput").addEventListener("keydown", function(e) {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendTextMessage();
+  }
+});
+
+// ----------------------
+// Send Image Message
+// ----------------------
+document.getElementById("sendImageBtn").onclick = async () => {
+  const file = document.getElementById("imageInput").files[0];
+  if (!file) return;
+
+  const imageUrl = await uploadImageToCloudinary(file);
+
+  db.ref("messages").push({
+    user: username,
+    imageUrl: imageUrl,
+    time: Date.now()
+  });
+
+  document.getElementById("imageInput").value = "";
+};
+
+// ----------------------
+// Display Messages
+// ----------------------
+db.ref("messages").on("child_added", snapshot => {
+  const msg = snapshot.val();
+  const chatBox = document.getElementById("chatBox");
+
+  const isMe = msg.user === username;
+  const bubbleClass = isMe ? "msgRight" : "msgLeft";
+
+  let html = `<div class="${bubbleClass}"><strong>${msg.user}</strong><br>`;
+
+  if (msg.text) html += `${msg.text}`;
+  if (msg.imageUrl) html += `<br><img src="${msg.imageUrl}">`;
+
+  html += `</div>`;
+
+  chatBox.innerHTML += html;
+  chatBox.scrollTop = chatBox.scrollHeight;
+});
+</script>
+
+</body>
+</html>
