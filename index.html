@@ -191,12 +191,12 @@ db.ref("activeUsers").on("value", snapshot => {
   const userListDiv = document.getElementById("userList");
 
   if (!snapshot.exists()) {
-    userListDiv.innerText = "Users online: (none)";
+    userListDiv.innerText = "在线用户: (none)";
     return;
   }
 
   const users = Object.keys(snapshot.val());
-  userListDiv.innerText = "Users online: " + users.join(", ");
+  userListDiv.innerText = "在线用户: " + users.join(", ");
 });
 
 // ----------------------
