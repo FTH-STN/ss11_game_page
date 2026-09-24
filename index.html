@@ -2,13 +2,38 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>11's Game</title>
+<title>Just A Game</title>
 <style>
   body { font-family: Arial; background: #f5f5f5; margin: 0; padding: 20px; }
-  #loginBox, #chatUI { background: white; padding: 20px; border-radius: 8px; max-width: 600px; margin: auto; }
-  #chatBox { background: #fafafa; padding: 10px; border-radius: 8px; height: 350px; overflow-y: auto; }
+  #loginBox, #chatUI { background: white; padding: 20px; border-radius: 8px; max-width: 900px; margin: auto; }
 
-  /* Active user list */
+  /* Layout: announcement + chat side by side */
+  #mainLayout {
+    display: flex;
+    gap: 20px;
+  }
+
+  #announcementBox {
+    width: 30%;
+    background:#fff3cd;
+    padding:10px;
+    border-radius:8px;
+    height: 520px;
+    box-sizing: border-box;
+  }
+
+  #chatArea {
+    width: 70%;
+  }
+
+  #chatBox {
+    background: #fafafa;
+    padding: 10px;
+    border-radius: 8px;
+    height: 520px;   /* taller chat window */
+    overflow-y: auto;
+  }
+
   #userList {
     background: #e8f0fe;
     padding: 10px;
@@ -17,7 +42,6 @@
     font-size: 14px;
   }
 
-  /* Message bubbles */
   .msgLeft {
     text-align: left;
     background: #e0e0e0;
@@ -45,46 +69,49 @@
 </head>
 <body>
 
-<!-- LOGIN SCREEN -->
 <div id="loginBox">
   <h2>进入游戏</h2>
-
   <input type="text" id="usernameInput" placeholder="Your name"><br><br>
   <input type="password" id="passwordInput" placeholder="Password"><br><br>
-
   <button id="enterBtn">Enter</button>
   <div id="errorMsg"></div>
 </div>
 
-<!-- CHAT UI -->
 <div id="chatUI" style="display:none;">
   <h2>11性奴调教游戏</h2>
 
-  <!-- ACTIVE USER LIST -->
-  <div id="userList">在线用户: (loading...)</div>
+  <div id="mainLayout">
+    <!-- Announcement panel -->
+    <div id="announcementBox">
+      <h3>公告栏</h3>
+      <textarea id="announcementInput" style="width:100%; height:120px;"></textarea>
+      <br><br>
+      <button id="saveAnnouncementBtn">保存</button>
+    </div>
 
-  <div id="chatBox"></div>
+    <!-- Chat area -->
+    <div id="chatArea">
+      <div id="userList">在线用户: (none)</div>
+      <div id="chatBox"></div>
 
-  <br>
+      <br>
+      <input type="text" id="msgInput" placeholder="Type a message">
+      <button id="sendBtn">发送消息</button>
+      <br><br>
 
-  <input type="text" id="msgInput" placeholder="Type a message">
-  <button id="sendBtn">发送消息</button>
-  <br><br>
+      <input type="file" id="imageInput" accept="image/*">
+      <button id="sendImageBtn">发送图片</button>
 
-  <input type="file" id="imageInput" accept="image/*">
-  <button id="sendImageBtn">发送图片</button>
-
-  <br><br>
-  <button id="leaveBtn">离开游戏</button>
+      <br><br>
+      <button id="leaveBtn">离开游戏</button>
+    </div>
+  </div>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 
 <script>
-// ----------------------
-// Firebase Config
-// ----------------------
 const firebaseConfig = {
   apiKey: "AIzaSyAI9oPOuv9QXzzkGiMdt2NBbaShYEklRGo",
   authDomain: "ss11game.firebaseapp.com",
@@ -98,9 +125,6 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// ----------------------
-// Cloudinary Config
-// ----------------------
 const cloudName = "ofsvu4f8";
 const uploadPreset = "chat_uploads";
 
@@ -109,17 +133,55 @@ async function uploadImageToCloudinary(file) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("upload_preset", uploadPreset);
-
   const response = await fetch(url, { method: "POST", body: formData });
   const data = await response.json();
   return data.secure_url;
 }
 
-// ----------------------
-// Login (Username + Password)
-// ----------------------
 let username = "";
 const PASSWORD = "HEchoNG11";
+let heartbeatInterval = null;
+let cleanupInterval = null;
+
+function startHeartbeat() {
+  heartbeatInterval = setInterval(() => {
+    if (!username) return;
+    db.ref("activeUsers/" + username).update({
+      alive: true,
+      lastSeen: Date.now()
+    });
+  }, 5000);
+
+  cleanupInterval = setInterval(() => {
+    db.ref("activeUsers").once("value", snapshot => {
+      const users = snapshot.val();
+      if (!users) {
+        db.ref("messages").remove();
+        return;
+      }
+
+      const now = Date.now();
+      const TIMEOUT = 15000;
+
+      Object.keys(users).forEach(u => {
+        if (!users[u].lastSeen || now - users[u].lastSeen > TIMEOUT) {
+          db.ref("activeUsers/" + u).remove();
+        }
+      });
+
+      db.ref("activeUsers").once("value", snap2 => {
+        if (!snap2.exists()) {
+          db.ref("messages").remove();
+        }
+      });
+    });
+  }, 10000);
+}
+
+function stopHeartbeat() {
+  clearInterval(heartbeatInterval);
+  clearInterval(cleanupInterval);
+}
 
 function tryLogin() {
   const name = document.getElementById("usernameInput").value.trim();
@@ -129,7 +191,6 @@ function tryLogin() {
     document.getElementById("errorMsg").innerText = "Please enter a name.";
     return;
   }
-
   if (pw !== PASSWORD) {
     document.getElementById("errorMsg").innerText = "Incorrect password.";
     return;
@@ -137,10 +198,15 @@ function tryLogin() {
 
   username = name;
 
-  // Add user to active list
-  db.ref("activeUsers/" + username).set(true);
+  const userRef = db.ref("activeUsers/" + username);
 
-  // If first user → reset Firebase messages
+  userRef.set({
+    alive: true,
+    lastSeen: Date.now()
+  });
+
+  userRef.onDisconnect().remove();
+
   db.ref("activeUsers").once("value", snapshot => {
     const users = snapshot.val();
     if (users && Object.keys(users).length === 1) {
@@ -148,63 +214,47 @@ function tryLogin() {
     }
   });
 
-  // Clear local chat screen
   document.getElementById("chatBox").innerHTML = "";
+  startHeartbeat();
 
   document.getElementById("loginBox").style.display = "none";
   document.getElementById("chatUI").style.display = "block";
 }
 
 document.getElementById("enterBtn").onclick = tryLogin;
-
-// ENTER KEY for password
-document.getElementById("passwordInput").addEventListener("keydown", function(e) {
-  if (e.key === "Enter") {
-    tryLogin();
-  }
+document.getElementById("passwordInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") tryLogin();
 });
 
-// ----------------------
-// Leave Chat Room
-// ----------------------
 document.getElementById("leaveBtn").onclick = () => {
   db.ref("activeUsers/" + username).remove();
+  stopHeartbeat();
 
   db.ref("activeUsers").once("value", snapshot => {
-    if (!snapshot.exists()) {
-      db.ref("messages").remove();
-    }
+    if (!snapshot.exists()) db.ref("messages").remove();
   });
 
   document.getElementById("chatUI").style.display = "none";
   document.getElementById("loginBox").style.display = "block";
-
   document.getElementById("usernameInput").value = "";
   document.getElementById("passwordInput").value = "";
   document.getElementById("chatBox").innerHTML = "";
+  username = "";
 };
 
-// ----------------------
-// ACTIVE USER LIST (REAL-TIME)
-// ----------------------
 db.ref("activeUsers").on("value", snapshot => {
   const userListDiv = document.getElementById("userList");
-
   if (!snapshot.exists()) {
     userListDiv.innerText = "在线用户: (none)";
     return;
   }
-
   const users = Object.keys(snapshot.val());
   userListDiv.innerText = "在线用户: " + users.join(", ");
 });
 
-// ----------------------
-// Send Text Message
-// ----------------------
 function sendTextMessage() {
   const text = document.getElementById("msgInput").value.trim();
-  if (!text) return;
+  if (!text || !username) return;
 
   db.ref("messages").push({
     user: username,
@@ -216,20 +266,16 @@ function sendTextMessage() {
 }
 
 document.getElementById("sendBtn").onclick = sendTextMessage;
-
-document.getElementById("msgInput").addEventListener("keydown", function(e) {
+document.getElementById("msgInput").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     sendTextMessage();
   }
 });
 
-// ----------------------
-// Send Image Message
-// ----------------------
 document.getElementById("sendImageBtn").onclick = async () => {
   const file = document.getElementById("imageInput").files[0];
-  if (!file) return;
+  if (!file || !username) return;
 
   const imageUrl = await uploadImageToCloudinary(file);
 
@@ -242,9 +288,6 @@ document.getElementById("sendImageBtn").onclick = async () => {
   document.getElementById("imageInput").value = "";
 };
 
-// ----------------------
-// Display Messages
-// ----------------------
 db.ref("messages").on("child_added", snapshot => {
   const msg = snapshot.val();
   const chatBox = document.getElementById("chatBox");
@@ -252,16 +295,47 @@ db.ref("messages").on("child_added", snapshot => {
   const isMe = msg.user === username;
   const bubbleClass = isMe ? "msgRight" : "msgLeft";
 
-  let html = `<div class="${bubbleClass}"><strong>${msg.user}</strong><br>`;
+  // Create message container with unique ID
+  const msgId = "msg_" + snapshot.key;
+  let html = `<div id="${msgId}" class="${bubbleClass}">
+                <strong>${msg.user}</strong><br>`;
 
-  if (msg.text) html += `${msg.text}`;
-  if (msg.imageUrl) html += `<br><img src="${msg.imageUrl}">`;
+  if (msg.text) html += msg.text;
+
+  // Show image immediately
+  if (msg.imageUrl) {
+    html += `<br><img src="${msg.imageUrl}">`;
+  }
 
   html += `</div>`;
 
   chatBox.innerHTML += html;
   chatBox.scrollTop = chatBox.scrollHeight;
+
+  // ⭐ Remove image after 1 minute
+  if (msg.imageUrl) {
+    setTimeout(() => {
+      const div = document.getElementById(msgId);
+      if (div) {
+        // Remove only the <img>, keep the message bubble
+        const img = div.querySelector("img");
+        if (img) img.remove();
+      }
+    }, 60000); // 60,000 ms = 1 minute
+  }
 });
+
+
+// Announcement: load and save
+db.ref("announcement").on("value", snapshot => {
+  const text = snapshot.val() || "";
+  document.getElementById("announcementInput").value = text;
+});
+
+document.getElementById("saveAnnouncementBtn").onclick = () => {
+  const text = document.getElementById("announcementInput").value.trim();
+  db.ref("announcement").set(text);
+};
 </script>
 
 </body>
