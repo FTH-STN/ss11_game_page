@@ -122,6 +122,14 @@ const firebaseConfig = {
   appId: "1:454745281279:web:88d734303160dfab0e72ca"
 };
 
+  function getDateKey() {
+  const d = new Date();
+  return d.getFullYear() + "-" +
+         String(d.getMonth()+1).padStart(2,"0") + "-" +
+         String(d.getDate()).padStart(2,"0");
+}
+
+
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
@@ -156,7 +164,8 @@ function startHeartbeat() {
     db.ref("activeUsers").once("value", snapshot => {
       const users = snapshot.val();
       if (!users) {
-        db.ref("messages").remove();
+        // db.ref("messages").remove();
+        document.getElementById("chatBox").innerHTML = "";
         return;
       }
 
@@ -171,7 +180,8 @@ function startHeartbeat() {
 
       db.ref("activeUsers").once("value", snap2 => {
         if (!snap2.exists()) {
-          db.ref("messages").remove();
+          // db.ref("messages").remove();
+          document.getElementById("chatBox").innerHTML = "";
         }
       });
     });
@@ -210,7 +220,8 @@ function tryLogin() {
   db.ref("activeUsers").once("value", snapshot => {
     const users = snapshot.val();
     if (users && Object.keys(users).length === 1) {
-      db.ref("messages").remove();
+    //   db.ref("messages").remove();
+      document.getElementById("chatBox").innerHTML = "";
     }
   });
 
@@ -231,7 +242,10 @@ document.getElementById("leaveBtn").onclick = () => {
   stopHeartbeat();
 
   db.ref("activeUsers").once("value", snapshot => {
-    if (!snapshot.exists()) db.ref("messages").remove();
+    if (!snapshot.exists()) {
+      // db.ref("messages").remove();
+      document.getElementById("chatBox").innerHTML = "";
+    }
   });
 
   document.getElementById("chatUI").style.display = "none";
@@ -256,7 +270,7 @@ function sendTextMessage() {
   const text = document.getElementById("msgInput").value.trim();
   if (!text || !username) return;
 
-  db.ref("messages").push({
+  db.ref("messages/" + getDateKey()).push({
     user: username,
     text: text,
     time: Date.now()
@@ -279,7 +293,7 @@ document.getElementById("sendImageBtn").onclick = async () => {
 
   const imageUrl = await uploadImageToCloudinary(file);
 
-  db.ref("messages").push({
+  db.ref("messages/" + getDateKey()).push({
     user: username,
     imageUrl: imageUrl,
     time: Date.now()
@@ -288,7 +302,7 @@ document.getElementById("sendImageBtn").onclick = async () => {
   document.getElementById("imageInput").value = "";
 };
 
-db.ref("messages").on("child_added", snapshot => {
+db.ref("messages/" + getDateKey()).on("child_added", snapshot => {
   const msg = snapshot.val();
   const chatBox = document.getElementById("chatBox");
 
@@ -314,15 +328,15 @@ db.ref("messages").on("child_added", snapshot => {
 
   // ⭐ Remove image after 1 minute
   if (msg.imageUrl) {
-    setTimeout(() => {
-      const div = document.getElementById(msgId);
-      if (div) {
-        // Remove only the <img>, keep the message bubble
-        const img = div.querySelector("img");
-        if (img) img.remove();
-      }
-    }, 60000); // 60,000 ms = 1 minute
-  }
+  setTimeout(() => {
+    const div = document.getElementById(msgId);
+    if (div) {
+      const img = div.querySelector("img");
+      if (img) img.remove();
+    }
+  }, 60000);
+}
+
 });
 
 
