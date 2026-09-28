@@ -292,7 +292,7 @@ document.getElementById("sendImageBtn").onclick = async () => {
 
   const imageUrl = await uploadImageToCloudinary(file);
 
-  db.ref("messages/" + getDateKey()).push({
+  db.ref("messages/" + getDateKey() + "/" + username).push({
     user: username,
     imageUrl: imageUrl,
     time: Date.now()
@@ -301,42 +301,43 @@ document.getElementById("sendImageBtn").onclick = async () => {
   document.getElementById("imageInput").value = "";
 };
 
-db.ref("messages/" + getDateKey()).on("child_added", snapshot => {
-  const msg = snapshot.val();
-  const chatBox = document.getElementById("chatBox");
+db.ref("messages/" + getDateKey()).on("child_added", userSnap => {
+  const user = userSnap.key;
 
-  const isMe = msg.user === username;
-  const bubbleClass = isMe ? "msgRight" : "msgLeft";
+  // Listen for each message under this user
+  db.ref("messages/" + getDateKey() + "/" + user).on("child_added", msgSnap => {
+    const msg = msgSnap.val();
+    const chatBox = document.getElementById("chatBox");
 
-  // Create message container with unique ID
-  const msgId = "msg_" + snapshot.key;
-  let html = `<div id="${msgId}" class="${bubbleClass}">
-                <strong>${msg.user}</strong><br>`;
+    const isMe = user === username;
+    const bubbleClass = isMe ? "msgRight" : "msgLeft";
 
-  if (msg.text) html += msg.text;
+    const msgId = "msg_" + msgSnap.key;
 
-  // Show image immediately
-  if (msg.imageUrl) {
-    html += `<br><img src="${msg.imageUrl}">`;
-  }
+    let html = `<div id="${msgId}" class="${bubbleClass}">
+                  <strong>${user}</strong><br>`;
 
-  html += `</div>`;
+    if (msg.text) html += msg.text;
+    if (msg.imageUrl) html += `<br><img src="${msg.imageUrl}">`;
 
-  chatBox.innerHTML += html;
-  chatBox.scrollTop = chatBox.scrollHeight;
+    html += `</div>`;
 
-  // ⭐ Remove image after 1 minute
-  if (msg.imageUrl) {
-  setTimeout(() => {
-    const div = document.getElementById(msgId);
-    if (div) {
-      const img = div.querySelector("img");
-      if (img) img.remove();
+    chatBox.innerHTML += html;
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    // ⭐ Remove image after 1 minute
+    if (msg.imageUrl) {
+      setTimeout(() => {
+        const div = document.getElementById(msgId);
+        if (div) {
+          const img = div.querySelector("img");
+          if (img) img.remove();
+        }
+      }, 60000);
     }
-  }, 60000);
-}
-
+  });
 });
+
 
 
 // Announcement: load and save
