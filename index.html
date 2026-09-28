@@ -84,7 +84,7 @@
     <!-- Announcement panel -->
     <div id="announcementBox">
       <h3>公告栏</h3>
-      <textarea id="announcementInput" style="width:100%; height:120px;"></textarea>
+      <textarea id="announcementInput" style="width:100%; height:240px;"></textarea>
       <br><br>
       <button id="saveAnnouncementBtn">保存</button>
     </div>
@@ -270,8 +270,7 @@ function sendTextMessage() {
   const text = document.getElementById("msgInput").value.trim();
   if (!text || !username) return;
 
-  db.ref("messages/" + getDateKey()).push({
-    user: username,
+  db.ref("messages/" + getDateKey()  + "/" + username).push({
     text: text,
     time: Date.now()
   });
