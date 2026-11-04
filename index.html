@@ -18,9 +18,14 @@
     background:#fff3cd;
     padding:10px;
     border-radius:8px;
-    height: 520px;
+    height: 640px;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
   }
+  #announcementBox h3 { margin: 0 0 10px; }
+  #announcementInput { flex: 1; width: 100%; box-sizing: border-box; resize: none; }
+  #saveAnnouncementBtn { margin-top: 10px; align-self: flex-start; }
 
   #chatArea {
     width: 70%;
@@ -30,7 +35,7 @@
     background: #fafafa;
     padding: 10px;
     border-radius: 8px;
-    height: 520px;   /* taller chat window */
+    height: 580px;
     overflow-y: auto;
   }
 
@@ -84,8 +89,7 @@
     <!-- Announcement panel -->
     <div id="announcementBox">
       <h3>公告栏</h3>
-      <textarea id="announcementInput" style="width:100%; height:240px;"></textarea>
-      <br><br>
+      <textarea id="announcementInput"></textarea>
       <button id="saveAnnouncementBtn">保存</button>
     </div>
 
@@ -108,19 +112,11 @@
   </div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <script>
-const firebaseConfig = {
-  apiKey: "AIzaSyAI9oPOuv9QXzzkGiMdt2NBbaShYEklRGo",
-  authDomain: "ss11game.firebaseapp.com",
-  databaseURL: "https://ss11game-default-rtdb.firebaseio.com",
-  projectId: "ss11game",
-  storageBucket: "ss11game.appspot.com",
-  messagingSenderId: "454745281279",
-  appId: "1:454745281279:web:88d734303160dfab0e72ca"
-};
+const SUPABASE_URL = "https://jqlvlpfpzmmrfrqqpima.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Hu6uBt2LVR3dGNJtoDtD_g_kYIXbDhw";
 
   function getDateKey() {
   const d = new Date();
@@ -130,8 +126,11 @@ const firebaseConfig = {
 }
 
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
 
 const cloudName = "ofsvu4f8";
 const uploadPreset = "chat_uploads";
@@ -151,42 +150,26 @@ const PASSWORD = "HEchoNG11";
 let heartbeatInterval = null;
 let cleanupInterval = null;
 
+// Generous timeout: background tabs throttle timers
+const USER_TIMEOUT = 90000;
+
+function beat() {
+  if (!username) return;
+  sb.from("active_users").upsert({ username: username, last_seen: Date.now() })
+    .then(({ error }) => { if (error) console.error(error); });
+}
+
 function startHeartbeat() {
-  heartbeatInterval = setInterval(() => {
-    if (!username) return;
-    db.ref("activeUsers/" + username).update({
-      alive: true,
-      lastSeen: Date.now()
-    });
-  }, 5000);
+  heartbeatInterval = setInterval(beat, 5000);
 
   cleanupInterval = setInterval(() => {
-    db.ref("activeUsers").once("value", snapshot => {
-      const users = snapshot.val();
-      if (!users) {
-        // db.ref("messages").remove();
-        document.getElementById("chatBox").innerHTML = "";
-        return;
-      }
-
-      const now = Date.now();
-      const TIMEOUT = 15000;
-
-      Object.keys(users).forEach(u => {
-        if (!users[u].lastSeen || now - users[u].lastSeen > TIMEOUT) {
-          db.ref("activeUsers/" + u).remove();
-        }
-      });
-
-      db.ref("activeUsers").once("value", snap2 => {
-        if (!snap2.exists()) {
-          // db.ref("messages").remove();
-          document.getElementById("chatBox").innerHTML = "";
-        }
-      });
-    });
-  }, 10000);
+    sb.from("active_users").delete().lt("last_seen", Date.now() - USER_TIMEOUT).then(() => {});
+  }, 30000);
 }
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) beat();
+});
 
 function stopHeartbeat() {
   clearInterval(heartbeatInterval);
@@ -208,24 +191,15 @@ function tryLogin() {
 
   username = name;
 
-  const userRef = db.ref("activeUsers/" + username);
-
-  userRef.set({
-    alive: true,
-    lastSeen: Date.now()
-  });
-
-  userRef.onDisconnect().remove();
-
-  db.ref("activeUsers").once("value", snapshot => {
-    const users = snapshot.val();
-    if (users && Object.keys(users).length === 1) {
-    //   db.ref("messages").remove();
-      document.getElementById("chatBox").innerHTML = "";
-    }
-  });
-
+  sb.from("active_users").upsert({ username: username, last_seen: Date.now() }).then(refreshUsers);
   document.getElementById("chatBox").innerHTML = "";
+  renderedIds.clear();
+  // Skip history: only show messages sent after this login
+  sb.from("messages").select("id").order("id", { ascending: false }).limit(1)
+    .then(({ data }) => {
+      minId = data && data.length ? data[0].id : 0;
+      loadMessages();
+    });
   startHeartbeat();
 
   document.getElementById("loginBox").style.display = "none";
@@ -238,15 +212,8 @@ document.getElementById("passwordInput").addEventListener("keydown", e => {
 });
 
 document.getElementById("leaveBtn").onclick = () => {
-  db.ref("activeUsers/" + username).remove();
+  sb.from("active_users").delete().eq("username", username).then(refreshUsers);
   stopHeartbeat();
-
-  db.ref("activeUsers").once("value", snapshot => {
-    if (!snapshot.exists()) {
-      // db.ref("messages").remove();
-      document.getElementById("chatBox").innerHTML = "";
-    }
-  });
 
   document.getElementById("chatUI").style.display = "none";
   document.getElementById("loginBox").style.display = "block";
@@ -254,25 +221,46 @@ document.getElementById("leaveBtn").onclick = () => {
   document.getElementById("passwordInput").value = "";
   document.getElementById("chatBox").innerHTML = "";
   username = "";
+  minId = Infinity;
 };
 
-db.ref("activeUsers").on("value", snapshot => {
+async function refreshUsers() {
+  const { data } = await sb.from("active_users").select("username,last_seen")
+    .gt("last_seen", Date.now() - USER_TIMEOUT).order("username");
   const userListDiv = document.getElementById("userList");
-  if (!snapshot.exists()) {
+  if (!data || data.length === 0) {
     userListDiv.innerText = "在线用户: (none)";
     return;
   }
-  const users = Object.keys(snapshot.val());
-  userListDiv.innerText = "在线用户: " + users.join(", ");
+  userListDiv.innerText = "在线用户: " + data.map(r => r.username).join(", ");
+}
+refreshUsers();
+sb.channel("active_users_ch")
+  .on("postgres_changes", { event: "*", schema: "public", table: "active_users" }, refreshUsers)
+  .subscribe();
+
+window.addEventListener("beforeunload", () => {
+  if (username) {
+    fetch(`${SUPABASE_URL}/rest/v1/active_users?username=eq.${encodeURIComponent(username)}`, {
+      method: "DELETE",
+      keepalive: true,
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY }
+    });
+  }
 });
 
 function sendTextMessage() {
   const text = document.getElementById("msgInput").value.trim();
   if (!text || !username) return;
 
-  db.ref("messages/" + getDateKey()  + "/" + username).push({
+  sb.from("messages").insert({
+    date_key: getDateKey(),
+    username: username,
     text: text,
     time: Date.now()
+  }).then(({ error }) => {
+    if (error) console.error(error);
+    loadMessages();
   });
 
   document.getElementById("msgInput").value = "";
@@ -291,64 +279,91 @@ document.getElementById("sendImageBtn").onclick = async () => {
   if (!file || !username) return;
 
   const imageUrl = await uploadImageToCloudinary(file);
+  if (!imageUrl) {
+    alert("Image upload failed");
+    return;
+  }
 
-  db.ref("messages/" + getDateKey() + "/" + username).push({
-    user: username,
-    imageUrl: imageUrl,
+  const { error } = await sb.from("messages").insert({
+    date_key: getDateKey(),
+    username: username,
+    image_url: imageUrl,
     time: Date.now()
   });
+  if (error) {
+    console.error(error);
+    alert("Failed to send image: " + error.message);
+  }
+  loadMessages();
 
   document.getElementById("imageInput").value = "";
 };
 
-db.ref("messages/" + getDateKey()).on("child_added", userSnap => {
-  const user = userSnap.key;
+const renderedIds = new Set();
+let minId = Infinity;
 
-  // Listen for each message under this user
-  db.ref("messages/" + getDateKey() + "/" + user).on("child_added", msgSnap => {
-    const msg = msgSnap.val();
-    const chatBox = document.getElementById("chatBox");
+function renderMessage(m) {
+  if (!username || m.id <= minId || renderedIds.has(m.id)) return;
+  renderedIds.add(m.id);
 
-    const isMe = user === username;
-    const bubbleClass = isMe ? "msgRight" : "msgLeft";
+  const chatBox = document.getElementById("chatBox");
+  const bubbleClass = m.username === username ? "msgRight" : "msgLeft";
+  const msgId = "msg_" + m.id;
 
-    const msgId = "msg_" + msgSnap.key;
+  let html = `<div id="${msgId}" class="${bubbleClass}">
+                <strong>${escapeHtml(m.username)}</strong><br>`;
+  if (m.text) html += escapeHtml(m.text);
+  if (m.image_url) html += `<br><img src="${escapeHtml(m.image_url)}">`;
+  html += `</div>`;
 
-    let html = `<div id="${msgId}" class="${bubbleClass}">
-                  <strong>${user}</strong><br>`;
+  chatBox.insertAdjacentHTML("beforeend", html);
+  chatBox.scrollTop = chatBox.scrollHeight;
 
-    if (msg.text) html += msg.text;
-    if (msg.imageUrl) html += `<br><img src="${msg.imageUrl}">`;
+  // Remove image after 1 minute
+  if (m.image_url) {
+    setTimeout(() => {
+      const img = document.querySelector("#" + msgId + " img");
+      if (img) img.remove();
+    }, 60000);
+  }
+}
 
-    html += `</div>`;
+async function loadMessages() {
+  if (minId === Infinity) return;
+  const { data } = await sb.from("messages").select("*")
+    .eq("date_key", getDateKey()).gt("id", minId).order("id", { ascending: true });
+  (data || []).forEach(renderMessage);
+}
 
-    chatBox.innerHTML += html;
-    chatBox.scrollTop = chatBox.scrollHeight;
+sb.channel("messages_ch")
+  .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => {
+    if (payload.new.date_key === getDateKey()) renderMessage(payload.new);
+  })
+  .subscribe();
 
-    // ⭐ Remove image after 1 minute
-    if (msg.imageUrl) {
-      setTimeout(() => {
-        const div = document.getElementById(msgId);
-        if (div) {
-          const img = div.querySelector("img");
-          if (img) img.remove();
-        }
-      }, 60000);
-    }
-  });
-});
-
-
+// Polling fallback in case realtime isn't enabled
+setInterval(() => {
+  if (username) loadMessages();
+  refreshUsers();
+}, 2000);
 
 // Announcement: load and save
-db.ref("announcement").on("value", snapshot => {
-  const text = snapshot.val() || "";
-  document.getElementById("announcementInput").value = text;
-});
+async function loadAnnouncement() {
+  const { data } = await sb.from("announcement").select("text")
+    .order("id", { ascending: false }).limit(1);
+  document.getElementById("announcementInput").value = (data && data[0] && data[0].text) || "";
+}
+loadAnnouncement();
+sb.channel("announcement_ch")
+  .on("postgres_changes", { event: "INSERT", schema: "public", table: "announcement" }, payload => {
+    document.getElementById("announcementInput").value = payload.new.text || "";
+  })
+  .subscribe();
 
 document.getElementById("saveAnnouncementBtn").onclick = () => {
   const text = document.getElementById("announcementInput").value.trim();
-  db.ref("announcement").set(text);
+  sb.from("announcement").insert({ text: text, time: Date.now() })
+    .then(({ error }) => { if (error) console.error(error); });
 };
 </script>
 
